@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gawynt Neon Runner</title>
+    <style>
+        :root { --blue: #00d2ff; --pink: #ff2d55; }
+        body { 
+            margin: 0; background: #000; color: #fff; 
+            font-family: 'Segoe UI', sans-serif; 
+            display: flex; align-items: center; justify-content: center; 
+            height: 100vh; overflow: hidden; 
+        }
+        #game-container { position: relative; border-radius: 15px; overflow: hidden; }
+        canvas { background: #050505; display: block; border: 1px solid #222; }
+        
+        .overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9); display: flex; 
+            flex-direction: column; align-items: center; justify-content: center;
+            z-index: 100;
+        }
+        .card { text-align: center; width: 320px; padding: 30px; border: 1px solid #333; border-radius: 30px; background: #0a0a0a; }
+        
+        h1 { color: var(--blue); letter-spacing: 3px; margin: 0 0 5px; text-transform: uppercase; font-weight: 900; }
+        .sub { font-size: 10px; opacity: 0.5; margin-bottom: 20px; letter-spacing: 2px; }
+
+        .leaderboard { width: 100%; background: #000; border-radius: 15px; margin-bottom: 20px; padding: 10px; font-size: 14px; min-height: 80px;}
+        .lb-row { display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #111; }
+        
+        .prompt { color: var(--blue); font-size: 11px; font-weight: bold; margin-bottom: 8px; text-transform: uppercase; }
+        input { 
+            width: 80%; padding: 14px; margin-bottom: 20px; border-radius: 10px; 
+            border: 1px solid var(--blue); background: #000; color: #fff; text-align: center; font-size: 16px;
+        }
+        button { 
+            background: var(--pink); color: #fff; border: none; padding: 16px 45px; 
+            border-radius: 50px; font-weight: 900; cursor: pointer; transition: 0.2s;
+        }
+        button:hover { transform: scale(1.05); filter: brightness(1.2); }
+
+        #ui-layer { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        .stat { font-size: 24px; color: var(--blue); font-weight: 900; opacity: 0.6; }
+        .speed-stat { font-size: 12px; color: var(--pink); text-transform: uppercase; }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui-layer">
+            <div id="score-panel" class="stat">0</div>
+            <div id="speed-panel" class="speed-stat">Speed: 7.0</div>
+        </div>
+        
+        <div class="overlay" id="menu">
+            <div class="card">
+                <h1>GAWYNT</h1>
+                <div class="sub">NEON RUNNER</div>
+                
+                <div class="leaderboard" id="lb-view"></div>
+
+                <div class="prompt">Enter Your Name</div>
+                <input type="text" id="pName" placeholder="PLAYER 1" maxlength="10">
+                
+                <button onclick="startRun()">START SYSTEM</button>
+            </div>
+        </div>
+
+        <canvas id="stage"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('stage');
+        const ctx = canvas.getContext('2d');
+        const menu = document.getElementById('menu');
+        const lbView = document.getElementById('lb-view');
+        const scoreUI = document.getElementById('score-panel');
+        const speedUI = document.getElementById('speed-panel');
+        const nameInput = document.getElementById('pName');
+        
+        canvas.width = 800; canvas.height = 400;
+
+        let active = false;
+        let score = 0;
+        let gameSpeed = 7;
+        let spawn = 0;
+        let objects = [];
+        let speedTimer;
+
+        const p = { x: 80, y: 340, w: 40, h: 40, dy: 0, jmp: 15.5, grav: 0.82, ground: false };
+
+        function loadLB() {
+            const data = JSON.parse(localStorage.getItem('gn_scores')) || [];
+            lbView.innerHTML = data.length ? '' : '<div style="opacity:0.2; padding-top:20px;">No Logs Found</div>';
+            data.slice(0, 3).forEach((item, i) => {
+                lbView.innerHTML += `<div class="lb-row"><span>#${i+1} ${item.name}</span><span style="color:var(--pink)">${item.score}</span></div>`;
+            });
+        }
+
+        function saveScore(s) {
+            const name = nameInput.value.trim() || "Runner";
+            let data = JSON.parse(localStorage.getItem('gn_scores')) || [];
+            data.push({ name, score: s });
+            data.sort((a,b) => b.score - a.score);
+            localStorage.setItem('gn_scores', JSON.stringify(data.slice(0, 5)));
+            loadLB();
+        }
+
+        function startRun() {
+            score = 0; gameSpeed = 7; objects = []; p.y = 340; p.dy = 0;
+            scoreUI.innerText = "0";
+            speedUI.innerText = "Speed: 7.0";
+            active = true;
+            menu.style.display = 'none';
+
+            // INCREASE SPEED EVERY 1 SECOND
+            if(speedTimer) clearInterval(speedTimer);
+            speedTimer = setInterval(() => {
+                if(active) {
+                    gameSpeed += 0.3; // Adds 0.3 speed every second
+                    speedUI.innerText = `Speed: ${gameSpeed.toFixed(1)}`;
+                }
+            }, 1000);
+        }
+
+        function jump(e) {
+            if (e && e.code === 'Space') e.preventDefault();
+            if (p.ground && active) {
+                p.dy = -p.jmp;
+                p.ground = false;
+            }
+        }
+
+        window.addEventListener('keydown', jump);
+        canvas.addEventListener('mousedown', jump);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); });
+
+        function tick() {
+            if (!active) return;
+
+            p.dy += p.grav;
+            p.y += p.dy;
+
+            if (p.y + p.h > 380) {
+                p.y = 380 - p.h;
+                p.dy = 0;
+                p.ground = true;
+            }
+
+            spawn--;
+            if (spawn <= 0) {
+                let h = 30 + Math.random() * 50;
+                objects.push({ x: 850, y: 380 - h, w: 25, h: h });
+                // Obstacles spawn faster as gameSpeed increases
+                spawn = Math.max(15, 110 - (gameSpeed * 4));
+            }
+
+            for (let i = objects.length - 1; i >= 0; i--) {
+                objects[i].x -= gameSpeed;
+
+                if (p.x < objects[i].x + objects[i].w - 5 &&
+                    p.x + p.w > objects[i].x + 5 &&
+                    p.y < objects[i].y + objects[i].h - 5 &&
+                    p.y + p.h > objects[i].y + 5) {
+                    active = false;
+                    clearInterval(speedTimer);
+                    saveScore(score);
+                    document.querySelector('h1').innerText = "CRASHED";
+                    menu.style.display = 'flex';
+                }
+
+                if (objects[i].x + objects[i].w < 0) {
+                    objects.splice(i, 1);
+                    score++;
+                    scoreUI.innerText = score;
+                }
+            }
+        }
+
+        function render() {
+            ctx.fillStyle = '#050505';
+            ctx.fillRect(0, 0, 800, 400);
+
+            // Floor
+            ctx.strokeStyle = '#00d2ff';
+            ctx.lineWidth = 4;
+            ctx.beginPath(); ctx.moveTo(0, 380); ctx.lineTo(800, 380); ctx.stroke();
+
+            // Player Glow
+            ctx.shadowBlur = 12; ctx.shadowColor = '#00d2ff';
+            ctx.fillStyle = '#00d2ff';
+            ctx.fillRect(p.x, p.y, p.w, p.h);
+
+            // Hazard Glow
+            ctx.shadowColor = '#ff2d55';
+            ctx.fillStyle = '#ff2d55';
+            for(let o of objects) ctx.fillRect(o.x, o.y, o.w, o.h);
+
+            ctx.shadowBlur = 0;
+            tick();
+            requestAnimationFrame(render);
+        }
+
+        loadLB();
+        render();
+    </script>
+</body>
+</html>
